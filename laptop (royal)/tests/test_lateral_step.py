@@ -2,7 +2,7 @@
 
 import collections
 
-import pose_test as pt
+import pose_controller as pt
 
 ASPECT = 640 / 480
 SHOULDER_WIDTH = 0.20
