@@ -1,0 +1,80 @@
+diff --git a/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift b/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift
+index 86afc43..a8d4e3a 100644
+--- a/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift
++++ b/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift
+@@ -215,3 +215,62 @@ struct IOGestureMethodHandler: RPCMethodHandler {
+         logger.info("Finger \(fingerIndex): path completed, total duration \(currentOffset)s")
+     }
+ }
++
++// The normal gesture path asks XCTest which app is in front and reads its frame
++// for every command. A runner game keeps its display geometry during a run, so
++// prepare it once after opening the game and reuse the daemon connection.
++@MainActor
++private enum FastSwipeState {
++    static var geometry: OrientationGeometry?
++    static var proxy: RunnerDaemonProxy?
++}
++
++@MainActor
++struct FastSwipePrepareMethodHandler: RPCMethodHandler {
++    static let methodName = "device.io.fastSwipe.prepare"
++
++    func execute(params: JSONValue?) async throws -> JSONValue {
++        FastSwipeState.geometry = OrientationGeometry.current()
++        FastSwipeState.proxy = RunnerDaemonProxy()
++        return .object(["success": .bool(true)])
++    }
++}
++
++private struct FastSwipeRequest: Decodable {
++    let direction: String
++}
++
++@MainActor
++struct FastSwipeMethodHandler: RPCMethodHandler {
++    static let methodName = "device.io.fastSwipe"
++
++    func execute(params: JSONValue?) async throws -> JSONValue {
++        let request = try decodeParams(FastSwipeRequest.self, from: params)
++        guard let geometry = FastSwipeState.geometry, let proxy = FastSwipeState.proxy else {
++            throw RPCMethodError.invalidParams("Call device.io.fastSwipe.prepare after opening the game")
++        }
++
++        let landscape = geometry.orientation == .landscapeLeft || geometry.orientation == .landscapeRight
++        let width = landscape ? geometry.portraitHeight : geometry.portraitWidth
++        let height = landscape ? geometry.portraitWidth : geometry.portraitHeight
++        let center = CGPoint(x: width * 0.5, y: height * 0.5)
++        var end = center
++        switch request.direction.lowercased() {
++        case "left": end.x -= width * 0.2
++        case "right": end.x += width * 0.2
++        case "up": end.y -= height * 0.2
++        case "down": end.y += height * 0.2
++        default: throw RPCMethodError.invalidParams("Expected left, right, up, or down")
++        }
++
++        let record = EventRecord(orientation: .portrait, displayID: geometry.displayID)
++        var path = PointerEventPath.pathForTouch(at: geometry.touchPoint(for: center))
++        // Match the tested short gesture: 50 ms minimum press, 20 ms move.
++        path.offset = 0.07
++        path.moveTo(point: geometry.touchPoint(for: end))
++        path.liftUp()
++        _ = record.add(path)
++        try await proxy.synthesize(eventRecord: record)
++        return .object(["success": .bool(true)])
++    }
++}
+diff --git a/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift b/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift
+index c1b987a..bfcb4a8 100644
+--- a/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift
++++ b/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift
+@@ -23,6 +23,8 @@ final class JSONRPCDispatcher {
+         registerHandler(ScreenshotMethodHandler())
+         registerHandler(URLMethodHandler())
+         registerHandler(IOGestureMethodHandler())
++        registerHandler(FastSwipePrepareMethodHandler())
++        registerHandler(FastSwipeMethodHandler())
+         registerHandler(IOButtonMethodHandler())
+         registerHandler(IOOrientationGetMethodHandler())
+         registerHandler(IOOrientationSetMethodHandler())

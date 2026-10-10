@@ -1,0 +1,31 @@
+name: Build iPad fast helper
+
+on:
+  push:
+    branches: [fast-ipad-helper]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned DeviceKit release
+        run: |
+          git clone --depth 1 --branch 0.0.33 --recurse-submodules https://github.com/mobile-next/devicekit-ios.git devicekit-src
+          test "$(git -C devicekit-src rev-parse HEAD)" = cbf1555d202e6b863bcf0cdc42954852bf6f5f12
+          git -C devicekit-src apply --check "$GITHUB_WORKSPACE/mobile/devicekit-fast/fast-swipe.patch"
+          git -C devicekit-src apply "$GITHUB_WORKSPACE/mobile/devicekit-fast/fast-swipe.patch"
+      - name: Build unsigned iPad runner
+        working-directory: devicekit-src
+        run: |
+          brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify
+          make ipa-unsigned IPHONEOS_DEPLOYMENT_TARGET=14.0
+      - name: Upload unsigned runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: body-controller-fast-ipad-runner
+          path: devicekit-src/build/export/devicekit-ios-runner.ipa
+          retention-days: 3
