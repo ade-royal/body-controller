@@ -3,7 +3,7 @@
 `fast-swipe.patch` changes [DeviceKit iOS 0.0.33](https://github.com/mobile-next/devicekit-ios/releases/tag/0.0.33), pinned to commit `cbf1555d202e6b863bcf0cdc42954852bf6f5f12`. The patch adds two JSON-RPC methods:
 
 - `device.io.fastSwipe.prepare` captures the foreground game's screen geometry and the XCTest daemon connection once. Call it after opening the game and again after changing games or rotating the iPad.
-- `device.io.fastSwipe` takes `{ "direction": "left" }` (or right/up/down), sends a center-origin touch with 50 ms press and 20 ms movement, and releases it. It uses the prepared geometry without querying the foreground app for each swipe.
+- `device.io.fastSwipe` takes `{ "direction": "left" }` (or right/up/down) and an optional `"offset"` in seconds. The default offset is `0.07`. The touch still starts at screen center and travels 20% of that axis. The handler logs timestamps immediately before and after `proxy.synthesize`, and the result includes `synthesizeMs` for that interval. It uses the prepared geometry without querying the foreground app for each swipe.
 
 The original DeviceKit methods remain unchanged, allowing a direct latency comparison. The patch only changes two existing Swift files, so the original Xcode project compiles them without project-file edits. GitHub Actions builds an unsigned runner IPA; xtool signs it with the user's own developer account before installation. DeviceKit's [license](https://github.com/mobile-next/devicekit-ios/blob/0.0.33/LICENSE) still applies to the patched helper.
 

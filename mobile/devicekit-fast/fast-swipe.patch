@@ -2,7 +2,7 @@ diff --git a/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift b/DeviceKitTests/JS
 index 86afc43..a8d4e3a 100644
 --- a/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift
 +++ b/DeviceKitTests/JSONRPC/Handlers/IOGesture.swift
-@@ -215,3 +215,62 @@ struct IOGestureMethodHandler: RPCMethodHandler {
+@@ -215,3 +215,74 @@ struct IOGestureMethodHandler: RPCMethodHandler {
          logger.info("Finger \(fingerIndex): path completed, total duration \(currentOffset)s")
      }
  }
@@ -29,6 +29,8 @@ index 86afc43..a8d4e3a 100644
 +
 +private struct FastSwipeRequest: Decodable {
 +    let direction: String
++    /// Touch timeline length in seconds. Omitted requests keep the 70 ms baseline.
++    let offset: Double?
 +}
 +
 +@MainActor
@@ -39,6 +41,10 @@ index 86afc43..a8d4e3a 100644
 +        let request = try decodeParams(FastSwipeRequest.self, from: params)
 +        guard let geometry = FastSwipeState.geometry, let proxy = FastSwipeState.proxy else {
 +            throw RPCMethodError.invalidParams("Call device.io.fastSwipe.prepare after opening the game")
++        }
++        let offset = request.offset ?? 0.07
++        guard offset >= 0.009 && offset <= 0.071 else {
++            throw RPCMethodError.invalidParams("offset must be from 0.01 through 0.07 seconds")
 +        }
 +
 +        let landscape = geometry.orientation == .landscapeLeft || geometry.orientation == .landscapeRight
@@ -56,13 +62,19 @@ index 86afc43..a8d4e3a 100644
 +
 +        let record = EventRecord(orientation: .portrait, displayID: geometry.displayID)
 +        var path = PointerEventPath.pathForTouch(at: geometry.touchPoint(for: center))
-+        // Match the tested short gesture: 50 ms minimum press, 20 ms move.
-+        path.offset = 0.07
++        path.offset = offset
 +        path.moveTo(point: geometry.touchPoint(for: end))
 +        path.liftUp()
 +        _ = record.add(path)
++        NSLog("fastSwipe synthesize begin %.6f offset %.3f", Date().timeIntervalSince1970, offset)
++        let synthesizeStarted = Date()
 +        try await proxy.synthesize(eventRecord: record)
-+        return .object(["success": .bool(true)])
++        let synthesizeMs = Date().timeIntervalSince(synthesizeStarted) * 1000
++        NSLog("fastSwipe synthesize end %.6f durationMs %.2f", Date().timeIntervalSince1970, synthesizeMs)
++        return .object([
++            "success": .bool(true),
++            "synthesizeMs": .double(synthesizeMs),
++        ])
 +    }
 +}
 diff --git a/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift b/DeviceKitTests/JSONRPC/JSONRPCDispatcher.swift

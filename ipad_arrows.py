@@ -11,12 +11,18 @@ from ios_swipe import WdaSwipeClient
 
 class ArrowController:
     def __init__(
-        self, root, url, dry_run=False, client_factory=FastDeviceKitSwipeClient
+        self,
+        root,
+        url,
+        dry_run=False,
+        client_factory=FastDeviceKitSwipeClient,
+        offset=0.07,
     ):
         self.root = root
         self.url = url
         self.dry_run = dry_run
         self.client_factory = client_factory
+        self.offset = offset
         self.results = queue.Queue()
         self.commands = queue.Queue(maxsize=1)
         self.stopped = threading.Event()
@@ -43,7 +49,7 @@ class ArrowController:
             ).pack()
         tk.Label(
             root,
-            text="One iPad gesture per press.",
+            text=f"Touch timeline {offset:.3f} s. One gesture per press.",
             font=("Segoe UI", 10),
             bg="#142030",
             fg="white",
@@ -71,7 +77,7 @@ class ArrowController:
             self.results.put(
                 (
                     "ready",
-                    "Ready — press an arrow key."
+                    f"Ready — press an arrow key. Timeline {self.offset:.3f} s."
                     + (" DRY RUN: no touches." if self.dry_run else ""),
                 )
             )
@@ -82,10 +88,28 @@ class ArrowController:
                     continue
                 if self.stopped.is_set():
                     break
-                elapsed = 0 if self.dry_run else client.native_swipe(direction)
-                self.results.put(
-                    ("done", f"{direction} acknowledged ({elapsed:.0f} ms). Ready.")
+                if self.dry_run:
+                    elapsed = 0
+                    synthesize = None
+                elif isinstance(client, FastDeviceKitSwipeClient):
+                    elapsed = client.native_swipe(direction, offset=self.offset)
+                    synthesize = client.last_synthesize_ms
+                else:
+                    elapsed = client.native_swipe(direction)
+                    synthesize = None
+                if synthesize is None:
+                    detail = f"acknowledged ({elapsed:.0f} ms)"
+                else:
+                    detail = (
+                        f"acknowledged ({elapsed:.0f} ms), "
+                        f"synthesize ({synthesize:.0f} ms)"
+                    )
+                print(
+                    f"ACK direction={direction} offset={self.offset:.3f} "
+                    f"ack_ms={elapsed:.1f} synthesize_ms={synthesize}",
+                    flush=True,
                 )
+                self.results.put(("done", f"{direction} {detail}. Ready."))
         except Exception as exc:  # noqa: BLE001 - Report any worker failure to the UI.
             self.results.put(
                 ("error", f"Connection stopped: {exc}. Close and reopen to reconnect.")
@@ -133,7 +157,15 @@ def main():
     )
     parser.add_argument("--url", help="Override the selected helper's localhost URL")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--offset",
+        type=float,
+        default=0.07,
+        help="Fast-swipe touch timeline in seconds (0.01 to 0.07). Default is 0.07.",
+    )
     args = parser.parse_args()
+    if args.backend == "fast" and not 0.01 <= args.offset <= 0.07:
+        parser.error("--offset must be from 0.01 through 0.07 seconds")
     root = tk.Tk()
     client_factory = {
         "devicekit": DeviceKitSwipeClient,
@@ -143,7 +175,7 @@ def main():
     url = args.url or (
         "http://127.0.0.1:12004" if args.backend != "wda" else "http://127.0.0.1:8100"
     )
-    ArrowController(root, url, args.dry_run, client_factory)
+    ArrowController(root, url, args.dry_run, client_factory, offset=args.offset)
     root.mainloop()
 
 

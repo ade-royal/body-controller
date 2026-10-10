@@ -23,6 +23,8 @@ class Handler(BaseHTTPRequestHandler):
             result = None
         else:
             result = {"success": True}
+            if self.server.synthesize_ms is not None:
+                result["synthesizeMs"] = self.server.synthesize_ms
         response = {"jsonrpc": "2.0", "id": body["id"]}
         if self.server.reject and body["method"] != "device.info":
             response["error"] = {"message": "Touch rejected"}
@@ -40,6 +42,7 @@ def devicekit():
     server = HTTPServer(("127.0.0.1", 0), Handler)
     server.calls = []
     server.reject = False
+    server.synthesize_ms = None
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     client = DeviceKitSwipeClient(f"http://127.0.0.1:{server.server_port}")
@@ -109,5 +112,22 @@ def test_fast_backend_prepares_once_and_sends_small_direction_request(devicekit)
             {"direction": "left"},
             {"direction": "up"},
         ]
+    finally:
+        fast.close()
+
+
+def test_fast_swipe_offset_is_sent_and_requires_synthesize_time(devicekit):
+    _client, server = devicekit
+    fast = FastDeviceKitSwipeClient(f"http://127.0.0.1:{server.server_port}")
+    try:
+        fast.start()
+        with pytest.raises(RuntimeError, match="did not report synthesize time"):
+            fast.native_swipe("RIGHT", offset=0.01)
+        assert server.calls[-1]["params"] == {"direction": "right", "offset": 0.01}
+        server.synthesize_ms = 250
+        elapsed = fast.native_swipe("LEFT", offset=0.07)
+        assert elapsed >= 0
+        assert fast.last_synthesize_ms == 250
+        assert server.calls[-1]["params"] == {"direction": "left", "offset": 0.07}
     finally:
         fast.close()

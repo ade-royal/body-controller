@@ -116,7 +116,13 @@ class FastDeviceKitSwipeClient(DeviceKitSwipeClient):
         if result.get("success") is not True:
             raise RuntimeError("Fast swipe preparation failed")
 
-    def native_swipe(self, direction):
+    def native_swipe(self, direction, offset=None):
+        """Send one fast swipe. ``offset`` is the touch timeline in seconds.
+
+        The return value remains the full request-to-acknowledgment time.
+        ``last_synthesize_ms`` is the helper's on-device ``proxy.synthesize``
+        duration when the instrumented runner reports it.
+        """
         direction = ALIASES.get(direction.upper(), direction.upper())
         if direction not in DIRECTIONS:
             raise ValueError(
@@ -124,8 +130,21 @@ class FastDeviceKitSwipeClient(DeviceKitSwipeClient):
             )
         if self.size is None:
             raise RuntimeError("Start DeviceKit before sending gestures")
+        params = {"direction": direction.lower()}
+        if offset is not None:
+            if not 0.01 <= offset <= 0.07:
+                raise ValueError("offset must be from 0.01 through 0.07 seconds")
+            params["offset"] = offset
         started = time.perf_counter()
-        result = self.request("device.io.fastSwipe", {"direction": direction.lower()})
+        result = self.request("device.io.fastSwipe", params)
         if result.get("success") is not True:
             raise RuntimeError("Fast swipe was not confirmed")
+        synthesize = result.get("synthesizeMs")
+        if offset is not None and not isinstance(synthesize, (int, float)):
+            raise RuntimeError(
+                "Helper did not report synthesize time. Install the instrumented "
+                "fast runner before comparing swipe offsets; this request's offset "
+                "was not applied."
+            )
+        self.last_synthesize_ms = None if synthesize is None else float(synthesize)
         return (time.perf_counter() - started) * 1000
