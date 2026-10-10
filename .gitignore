@@ -226,3 +226,4 @@ __marimo__/
 # Local iPad tooling and signing material
 .venv-ios/
 .ios-tools/
+.android-tools/
