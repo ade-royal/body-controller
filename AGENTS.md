@@ -1,259 +1,542 @@
 # AGENTS.md
 
-## Project
+# Body Controller
 
-Body Controller
+## Project Mission
 
-## Mission
+Body Controller is a hackathon project that turns physical body movements into configurable controls for keyboard-based games.
 
-Build a configurable physical input system that allows a player to control keyboard-based games using body movements detected through a camera.
+The system uses camera-based pose detection to recognize movements such as jumping, crouching, and leaning. Recognized movements are represented as platform-independent gesture events and then mapped to game-specific keyboard controls.
 
-The project should NOT be optimized for one specific game.
+The project is NOT intended to build motion controls for one specific game.
 
-The system must separate:
+The core product is a configurable physical input layer:
 
-1. Observing the player
-2. Detecting body pose
-3. Recognizing a physical gesture
-4. Representing that gesture as an event
-5. Mapping the event to a configured control
-6. Sending the control to the game
+Camera
+→ Pose Detection
+→ Gesture Recognition
+→ Gesture Event
+→ Control Mapping
+→ Keyboard Input
+→ Game
 
 The primary hackathon MVP is the laptop implementation.
 
-A separate mobile implementation is being developed independently.
+A separate mobile implementation is being developed independently by another developer.
 
----
 
-# Core Architecture
+# Primary Product Principle
 
-The intended pipeline is:
+The computer-vision and gesture system answers:
 
-```text
-Camera
-   ↓
-Pose Detection
-   ↓
-Gesture Recognition
-   ↓
-Gesture Event
-   ↓
-Control Mapping
-   ↓
-Input Output
-   ↓
-Game
-```
+"What did the player physically do?"
 
-Each stage should have a clear responsibility.
+The profile system answers:
 
-Avoid tightly coupling stages.
+"What should that movement do in this game?"
 
----
+These responsibilities MUST remain separate.
 
-# Critical Architecture Rule
+For example:
 
-Pose and gesture code MUST NOT directly decide which keyboard key belongs to a gesture.
+Player jumps
+→ Gesture system emits JUMP
+→ Active game profile maps JUMP to SPACE
+→ Input controller sends SPACE
 
-Avoid designs conceptually equivalent to:
+The gesture engine should never care that JUMP maps to SPACE.
 
-```python
-if jump_detected:
-    press("space")
-```
 
-Instead:
+# Technology Stack
 
-```python
-gesture = Gesture.JUMP
-```
+## Runtime
 
-A separate mapping layer should determine:
+Use:
 
-```python
-key = active_profile.get_mapping(gesture)
-```
+- Python 3.12
 
-This separation is fundamental to the product.
+The laptop implementation is a Python 3.12 application.
 
-The same `JUMP` event may produce:
+Do not change the Python version without a concrete compatibility reason.
 
-```text
-SPACE
-```
 
-in one profile and:
+## Computer Vision
 
-```text
-UP
-```
+### MediaPipe Pose Landmarker
 
-in another.
+Use MediaPipe Pose Landmarker for real-time human pose estimation.
 
----
+MediaPipe is responsible for converting camera images into body landmarks.
 
-# Canonical Gesture Events
+Use a pretrained MediaPipe-compatible pose model stored under:
 
-Start with:
+laptop/models/
 
-```text
+The MVP does NOT require training a custom pose-estimation model.
+
+
+### OpenCV
+
+Use OpenCV for:
+
+- Webcam access
+- Camera frame capture
+- Video/image frame handling
+- Image conversion where required by MediaPipe
+- Initial real-time debug visualization
+
+Do not introduce another computer-vision framework unless a concrete technical limitation requires it.
+
+
+# Gesture Recognition
+
+Gesture recognition is custom Body Controller logic built on top of pose landmarks returned by MediaPipe.
+
+Initial canonical gesture vocabulary:
+
+- JUMP
+- CROUCH
+- LEAN_LEFT
+- LEAN_RIGHT
+- PRIMARY_GESTURE
+
+Prefer interpretable pose-landmark geometry, calibration, thresholds, and temporal/state-based logic.
+
+Do NOT train a custom gesture-recognition neural network for the MVP.
+
+
+# Configuration
+
+Use python-dotenv to load local environment configuration from `.env`.
+
+Environment variables may contain configuration such as:
+
+- Camera index
+- Camera resolution
+- MediaPipe model path
+- MediaPipe confidence settings
+- Debug flags
+- Default profile
+
+Do NOT store the following in `.env`:
+
+- Game-control mappings
+- Gesture definitions
+- User calibration data
+- Hardcoded pose logic
+
+`.env.example` defines the supported environment variables.
+
+The real `.env` file must not be committed.
+
+
+# Game Input
+
+Keyboard output must be isolated inside:
+
+laptop/src/input_controller.py
+
+Select and validate an appropriate Python keyboard-input library against the actual demo operating system and demo games before treating the library as a permanent dependency.
+
+Do not assume a keyboard-input library works with a particular game until it has been tested.
+
+No pose-detection or gesture-recognition module may directly call a keyboard-input library.
+
+
+# Testing
+
+Use pytest for automated tests.
+
+Prioritize tests covering deterministic application logic such as:
+
+- Gesture classification
+- Gesture state transitions
+- Gesture cooldown behavior
+- Debouncing
+- Calibration calculations
+- Profile loading
+- Profile validation
+- Gesture-to-control mappings
+
+Tests for deterministic gesture logic should not require a live webcam.
+
+
+# Linting and Formatting
+
+Use Ruff for Python linting and formatting.
+
+Do not introduce additional formatting or linting tools unless necessary.
+
+
+# Data Formats
+
+Use JSON for:
+
+- Game profiles
+- Shared gesture definitions
+
+Do not introduce a database for the MVP.
+
+
+# Repository Layout
+
+The laptop implementation uses a deliberately simple source structure.
+
+Application source code lives directly inside:
+
+laptop/src/
+
+Do NOT create another package-name directory such as:
+
+laptop/src/body_controller/
+
+unless explicitly requested.
+
+The intended repository structure is:
+
+body-controller/
+│
+├── README.md
+├── AGENTS.md
+├── LICENSE
+├── .gitignore
+├── .env.example
+├── .python-version
+│
+├── laptop/
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── requirements-dev.txt
+│   │
+│   ├── models/
+│   │
+│   ├── src/
+│   │   ├── app.py
+│   │   ├── config.py
+│   │   ├── camera.py
+│   │   ├── pose_detector.py
+│   │   ├── gesture.py
+│   │   ├── gesture_engine.py
+│   │   ├── gesture_state.py
+│   │   ├── calibration.py
+│   │   ├── profile.py
+│   │   ├── profile_loader.py
+│   │   ├── input_controller.py
+│   │   └── debug_view.py
+│   │
+│   └── tests/
+│       ├── test_gesture_engine.py
+│       ├── test_gesture_state.py
+│       ├── test_calibration.py
+│       └── test_profile_loader.py
+│
+├── mobile/
+│
+├── shared/
+│   └── gesture_schema.json
+│
+├── profiles/
+│   ├── runner.json
+│   └── platformer.json
+│
+└── docs/
+    ├── architecture.md
+    └── demo-plan.md
+
+Do not reorganize this structure without a concrete technical reason.
+
+
+# Module Responsibilities
+
+## main.py
+
+`laptop/main.py` is the application entry point.
+
+Keep it small.
+
+Its primary responsibility should be starting the laptop application.
+
+Complex application logic should not accumulate in `main.py`.
+
+
+## app.py
+
+Coordinates the laptop application.
+
+Expected conceptual flow:
+
+camera
+→ pose detector
+→ gesture engine
+→ gesture event
+→ profile
+→ input controller
+
+Responsibilities may include:
+
+- Starting application components
+- Running the primary application loop
+- Coordinating modules
+- Managing application lifecycle
+- Handling clean startup and shutdown
+
+Do not place gesture-classification mathematics inside `app.py`.
+
+
+## config.py
+
+Centralizes application configuration.
+
+Examples:
+
+- Environment variables
+- Reasonable application defaults
+- Runtime feature flags
+
+Avoid scattering configuration constants across unrelated modules.
+
+
+## camera.py
+
+Responsible for camera interaction.
+
+Responsibilities include:
+
+- Opening the selected camera
+- Reading frames
+- Applying configured camera resolution
+- Detecting camera failures
+- Releasing camera resources
+
+The camera module must not recognize gestures or send game controls.
+
+
+## pose_detector.py
+
+Encapsulates MediaPipe Pose Landmarker.
+
+Input:
+
+camera frame
+
+Output:
+
+pose-landmark result
+
+Responsibilities include:
+
+- Loading the configured MediaPipe pose model
+- Configuring MediaPipe
+- Running pose inference
+- Returning pose landmarks in a usable form
+
+Keep MediaPipe-specific implementation details isolated here when practical.
+
+The rest of Body Controller should not depend unnecessarily on MediaPipe-specific internals.
+
+
+## gesture.py
+
+Defines canonical gesture concepts.
+
+Initial gesture vocabulary:
+
 JUMP
 CROUCH
 LEAN_LEFT
 LEAN_RIGHT
 PRIMARY_GESTURE
-```
 
-These identifiers represent physical actions and must not contain game-specific meaning.
+Prefer one canonical identifier per physical action.
 
-Do not introduce multiple names for the same action.
+Avoid duplicate concepts such as:
 
-For example, avoid simultaneously creating:
-
-```text
 JUMP
 JUMPING
 PLAYER_JUMP
-UPWARD_JUMP
-```
+JUMP_GESTURE
 
-Prefer one canonical event:
+Use JUMP.
 
-```text
-JUMP
-```
 
-Additional gesture events may be introduced when justified.
+## gesture_engine.py
 
----
+Interprets pose landmarks and determines what physical action occurred.
 
-# Laptop MVP
+Input:
 
-The laptop implementation is the primary development target.
+pose landmarks and relevant state/calibration data
 
-The laptop pipeline should eventually be capable of operating completely independently:
+Output:
 
-```text
-Laptop webcam
-      ↓
-Pose detection
-      ↓
-Gesture recognition
-      ↓
-Gesture event
-      ↓
-Profile mapping
-      ↓
-Keyboard output
-      ↓
-Game
-```
+canonical gesture event or no gesture
 
-Do not make laptop functionality dependent on mobile functionality.
+This is the primary gesture-classification layer.
 
----
+Initial responsibilities include recognizing:
 
-# Mobile
+- Lean left
+- Lean right
+- Jump
+- Crouch
+- One additional upper-body gesture
 
-The `/mobile` directory belongs to the separate mobile implementation.
+Do not send keyboard commands from this module.
 
-Do not redesign or modify mobile architecture unless explicitly asked.
 
-Mobile may use different frameworks or pose-estimation technology.
+## gesture_state.py
 
-Where interoperability is required, communicate through shared gesture concepts rather than sharing platform-specific camera or vision implementation details.
+Handles temporal gesture state.
 
-The laptop implementation must continue working when the mobile implementation is unavailable.
+This module exists because a player may remain in a gesture position across many camera frames.
 
----
+For example:
 
-# Laptop Modules
+Player crouches
+→ CROUCH starts
+→ Emit CROUCH once
+→ Player remains crouched
+→ Do not emit CROUCH every frame
+→ Player returns to neutral
 
-The laptop implementation should maintain clear module boundaries.
+Appropriate concepts may include:
 
-Suggested responsibilities:
+- State transitions
+- Cooldowns
+- Debouncing
+- Gesture activation
+- Gesture release
+- Hysteresis
 
-## Camera
+One physical action should not accidentally produce dozens of game inputs simply because it appears across many frames.
 
-Responsible for:
 
-- Opening the selected camera
-- Reading frames
-- Releasing camera resources
-- Camera-related configuration
+## calibration.py
 
-The camera layer should not recognize gestures.
+Handles user-specific or camera-specific baseline measurements where necessary.
 
-## Pose
+Possible calibration information includes:
 
-Responsible for:
+- Neutral body center
+- Neutral shoulder height
+- Relative body scale
+- Useful movement thresholds
 
-- Running pose estimation
-- Converting frames into pose-landmark results
-- Returning normalized pose information
+Avoid assuming that every player:
 
-The pose layer should not generate keyboard input.
+- Has identical body dimensions
+- Stands at the same distance from the camera
+- Places the camera at the same height
+- Begins at identical image coordinates
 
-## Gestures
+Prefer relative measurements where appropriate.
 
-Responsible for:
 
-- Interpreting pose landmarks
-- Identifying physical actions
-- Maintaining gesture state where necessary
-- Applying thresholds
-- Handling gesture cooldown/debounce behavior
-- Emitting canonical gesture events
+## profile.py
 
-## Calibration
+Represents a game-control profile.
 
-Responsible for user-specific baseline information when needed.
+A profile maps canonical gestures to game controls.
 
-Examples may include neutral body position or relative movement thresholds.
+Example:
 
-Avoid assuming identical body dimensions, camera position, or distance for every user.
+JUMP → space
+CROUCH → s
+LEAN_LEFT → a
+LEAN_RIGHT → d
 
-## Profiles
+A profile contains game/control meaning.
 
-Responsible for:
+Gesture recognition does not.
 
-- Loading mappings
-- Validating mappings
-- Switching active profiles
-- Mapping gesture events to configured controls
 
-## Input
+## profile_loader.py
 
-Responsible for communicating configured keyboard actions to the operating system.
+Loads and validates external game-profile configuration.
 
-This module receives control commands.
+Profiles live under:
 
-It should not perform pose recognition.
+profiles/
 
-## Application
+The profile loader should:
 
-Responsible for:
+- Read profile files
+- Validate required structure
+- Reject invalid mappings clearly
+- Produce usable profile objects
 
-- Connecting the modules
-- Managing application lifecycle
-- Processing the pipeline
-- Handling clean startup and shutdown
+Changing profiles should not require changing pose or gesture code.
 
-## UI / Debug View
 
-May display:
+## input_controller.py
 
-- Camera preview
+Handles actual operating-system input.
+
+Input:
+
+configured keyboard action
+
+Output:
+
+keyboard event sent to the operating system/game
+
+This module is the boundary between Body Controller and OS-level game input.
+
+Keep the selected keyboard-input dependency isolated in this module.
+
+If the keyboard-input library must later change, pose detection and gesture recognition should remain unaffected.
+
+
+## debug_view.py
+
+Provides development and demonstration feedback.
+
+Useful information may include:
+
+- Camera feed
 - Pose landmarks
-- Active gesture
+- Current recognized gesture
 - Active profile
+- Current mapped output
 - Calibration state
-- Mapping information
-- FPS or useful debugging information
+- FPS/performance information
 
-Avoid spending significant development effort on visual polish until the end-to-end pipeline works reliably.
+The debug view should make it clear where failures occur.
 
----
+For example:
+
+Camera working?
+Pose detected?
+Gesture recognized?
+Profile mapped?
+Input sent?
+
+Do not prioritize elaborate UI design before the core pipeline works.
+
+
+# Core Architecture Rule
+
+DO NOT write code conceptually equivalent to:
+
+if jump_detected:
+    press("space")
+
+inside gesture-recognition code.
+
+Preferred architecture:
+
+gesture = Gesture.JUMP
+
+followed by a separate mapping operation:
+
+control = active_profile.get_mapping(gesture)
+
+followed by:
+
+input_controller.execute(control)
+
+This separation is fundamental to the project.
+
 
 # Gesture Recognition Philosophy
 
@@ -261,39 +544,33 @@ Reliability is more important than quantity.
 
 Prefer:
 
-```text
 4-5 reliable gestures
-```
 
 over:
 
-```text
-15 unreliable gestures
-```
+15 unreliable gestures.
 
-When possible, use pose landmarks and interpretable geometric/state-based logic before introducing custom model training.
+Use pose landmarks and deterministic logic when they adequately solve the problem.
 
-Gesture implementations should consider:
+Useful techniques may include:
 
-- Relative body positions
-- Neutral calibration
+- Relative landmark positions
+- Calibration baselines
 - Confidence thresholds
-- Temporal state
+- Temporal comparisons
+- State transitions
 - Cooldowns
 - Debouncing
-- Hysteresis where useful
+- Hysteresis
 
-A gesture should not repeatedly fire every frame merely because the player remains in the triggering position.
+Do not introduce custom neural-network training without a demonstrated need.
 
-Example:
 
-A single jump should normally create one `JUMP` event rather than dozens of consecutive `JUMP` events.
+# Initial Gesture Priority
 
----
+Implement gestures incrementally.
 
-# Initial Gestures
-
-Priority:
+Priority order:
 
 1. LEAN_LEFT
 2. LEAN_RIGHT
@@ -301,19 +578,17 @@ Priority:
 4. CROUCH
 5. PRIMARY_GESTURE
 
-Implement and validate gestures incrementally.
+Do not attempt to perfect every gesture simultaneously.
 
-Do not attempt to build the entire gesture library simultaneously.
+Get individual gestures working and test them before expanding the gesture set.
 
----
 
-# Profiles
+# Game Profiles
 
-Game mappings must be external and configurable.
+Game mappings MUST remain configurable.
 
-Example:
+A profile may conceptually resemble:
 
-```json
 {
   "name": "Example Platformer",
   "mappings": {
@@ -324,190 +599,344 @@ Example:
     "PRIMARY_GESTURE": "e"
   }
 }
-```
 
-Do not hardcode these mappings inside gesture detectors.
+The same gesture may map differently in another profile.
 
-Profile configuration should eventually make changing games possible without modifying recognition code.
+For example:
 
----
+Runner:
+JUMP → up
 
-# Game Scope
+Platformer:
+JUMP → space
 
-Optimize initially for games that:
+Gesture-recognition code must remain unchanged when switching these profiles.
+
+
+# Initial Game Scope
+
+Optimize the MVP for games that:
 
 - Accept keyboard controls
 - Require relatively few discrete actions
 - Provide immediate visual feedback
-- Do not require precise mouse aiming
+- Do not rely heavily on precise mouse aiming
 
-Good categories:
+Good demo categories include:
 
 - Endless runners
 - Simple platformers
-- Simple keyboard-controlled games
+- Other simple keyboard-controlled games
 
-Do not prioritize:
+The project does NOT claim universal game compatibility.
 
-- Competitive FPS games
-- Complex mouse aiming
-- Large control schemes
-- Games requiring many simultaneous inputs
 
----
+# Mobile Implementation
 
-# Testing
+The `/mobile` directory is owned by another developer.
 
-Prioritize unit tests for deterministic logic.
+Do NOT modify `/mobile` unless explicitly instructed to work on the mobile implementation.
 
-Especially test:
+The mobile implementation may use different:
 
-- Gesture classification
-- Gesture state transitions
-- Cooldowns/debouncing
-- Profile parsing
-- Mapping validation
+- Languages
+- Frameworks
+- Camera APIs
+- Pose-estimation technologies
+- UI architecture
 
-Camera and game integration can be validated separately from deterministic gesture logic.
+Do not force the mobile implementation to mirror the laptop file structure.
 
-Whenever possible, avoid requiring a live webcam simply to test landmark-to-gesture classification.
+The shared contract between implementations is conceptual gesture meaning.
 
----
 
-# Shared Code
+# Laptop/Mobile Shared Contract
 
-The `/shared` directory should contain only definitions that genuinely need to be shared across implementations.
+Where interoperability is needed, use canonical gesture events.
 
-Possible examples:
+Initial vocabulary:
 
-- Gesture-event schema
-- Gesture names
-- Protocol definitions
+JUMP
+CROUCH
+LEAN_LEFT
+LEAN_RIGHT
+PRIMARY_GESTURE
 
-Do not move laptop-specific functionality into `/shared` merely for architectural symmetry.
+`shared/gesture_schema.json` is the shared definition of this vocabulary.
 
----
+Both implementations should use equivalent gesture meanings even if they detect those gestures differently.
+
+Laptop functionality MUST NOT depend on mobile functionality.
+
+The laptop MVP should operate completely independently:
+
+Laptop camera
+→ Pose detection
+→ Gesture recognition
+→ Gesture event
+→ Profile mapping
+→ Keyboard input
+→ Game
+
+
+# Models
+
+`laptop/models/` stores pretrained model assets required by the laptop computer-vision pipeline.
+
+For the initial implementation, this primarily means the MediaPipe-compatible Pose Landmarker model.
+
+These are pretrained inference assets.
+
+Do NOT interpret this directory as a location for custom Body Controller ML-model training.
+
+Do not begin custom model training unless explicitly requested.
+
+
+# Environment Configuration
+
+`.env.example` defines local runtime configuration.
+
+Expected configuration includes:
+
+DEBUG
+CAMERA_INDEX
+CAMERA_WIDTH
+CAMERA_HEIGHT
+
+POSE_MODEL_PATH
+POSE_DETECTION_CONFIDENCE
+POSE_PRESENCE_CONFIDENCE
+POSE_TRACKING_CONFIDENCE
+
+DEFAULT_PROFILE
+SHOW_DEBUG_VIEW
+SHOW_LANDMARKS
+
+Developers may copy `.env.example` to `.env` and customize local values.
+
+Never commit sensitive information from `.env`.
+
+
+# Dependencies
+
+Runtime dependencies belong in:
+
+laptop/requirements.txt
+
+Current starting dependencies:
+
+mediapipe
+opencv-python
+python-dotenv
+
+Development-only dependencies belong in:
+
+laptop/requirements-dev.txt
+
+Current starting development dependencies:
+
+pytest
+ruff
+
+Do not add dependencies speculatively.
+
+Add a dependency when the implementation has a concrete need for it.
+
+
+# Testing Strategy
+
+Separate deterministic logic from hardware-dependent logic where practical.
+
+For example, gesture tests should ideally be capable of operating on known landmark data without requiring:
+
+- A webcam
+- A person standing in front of the computer
+- A running game
+
+Prioritize tests for:
+
+1. Gesture classification
+2. Gesture state transitions
+3. Cooldowns/debouncing
+4. Calibration calculations
+5. Profile parsing
+6. Profile validation
+7. Gesture-to-control mapping
+
+Camera integration and game integration may require manual/integration testing.
+
 
 # Engineering Guidelines
 
-When generating or modifying code:
+When modifying the project:
 
-1. Keep modules focused.
-2. Prefer small, understandable abstractions.
-3. Do not create architecture for hypothetical future requirements without justification.
-4. Preserve the separation between recognition and control mapping.
-5. Add type hints where useful.
-6. Add docstrings to non-obvious public classes/functions.
-7. Handle resources cleanly, especially cameras.
-8. Fail clearly when required resources are unavailable.
-9. Avoid hidden global state where practical.
-10. Keep configuration outside gesture algorithms when possible.
-11. Do not commit secrets or credentials.
-12. Do not add network/cloud dependencies unless required by a feature.
+1. Preserve module boundaries.
+2. Favor understandable implementations over unnecessary abstractions.
+3. Do not create architecture for hypothetical future features.
+4. Keep gesture recognition independent from game controls.
+5. Keep laptop functionality independent from mobile functionality.
+6. Add type hints where useful.
+7. Add docstrings for non-obvious public classes and functions.
+8. Release camera and other hardware resources cleanly.
+9. Fail clearly when required resources are unavailable.
+10. Avoid unnecessary global state.
+11. Keep tunable configuration centralized.
+12. Do not commit secrets or credentials.
+13. Do not add cloud/network dependencies unless a feature explicitly requires them.
+14. Do not restructure the repository without a concrete reason.
+15. Prioritize reliable live behavior over theoretical flexibility.
 
----
 
 # Performance Priorities
 
-For the live-control pipeline prioritize:
+For the real-time control loop, prioritize:
 
-1. Input responsiveness
-2. Stable tracking
+1. Responsiveness
+2. Stable pose tracking
 3. Reliable gesture recognition
 4. Low accidental-trigger rate
-5. Maintainable code
-6. Visual polish
+5. Clean gesture state handling
+6. Maintainable implementation
+7. Visual polish
 
-Avoid sacrificing responsiveness for unnecessary processing.
+Do not add expensive processing unless it produces a meaningful improvement.
 
----
 
 # MVP Definition of Done
 
 The laptop MVP is successful when:
 
-1. A camera feed opens reliably.
-2. The player's pose can be tracked in real time.
-3. At least four physical actions are reliably distinguished.
-4. Physical actions emit canonical gesture events.
-5. Gesture events pass through a configurable profile.
+1. The webcam opens reliably.
+2. The player's body pose is detected in real time.
+3. At least four physical movements are recognized reliably.
+4. Recognized movements produce canonical gesture events.
+5. Gesture events pass through a configurable game profile.
 6. Configured keyboard controls are emitted.
-7. A keyboard-controlled game responds to those controls.
-8. Profiles can be changed without rewriting pose-recognition code.
-9. Two different games can be demonstrated using different mappings.
+7. A real keyboard-controlled game responds.
+8. Profiles can be switched without modifying gesture-recognition code.
+9. A second game can use different mappings for the same gesture system.
+10. The laptop implementation operates without requiring the mobile implementation.
 
----
 
-# Non-Goals Until MVP Works
+# Explicit Non-Goals
 
-Do not prioritize:
+Until the MVP works, do NOT prioritize:
 
-- Universal support for every game
-- Automatic game recognition
-- AI-generated control profiles
+- Universal game compatibility
+- Custom pose-model training
+- Custom gesture-model training
 - Precise mouse aiming
+- FPS-game support
 - Large gesture libraries
-- Custom-trained gesture models
-- Multiplayer control
+- Automatic game detection
+- AI-generated game profiles
+- Multiplayer body controls
 - Cloud infrastructure
-- Advanced analytics
-- Complex account systems
-- Cross-platform desktop support
-- Mobile-dependent functionality
-- Highly polished UI
+- Databases
+- Authentication/accounts
+- Analytics infrastructure
+- Docker
+- External generative-AI APIs
+- Advanced desktop UI
+- Mobile-dependent laptop functionality
+- Python packaging/distribution infrastructure
 
-These are stretch concepts only.
+These are stretch concepts, not MVP requirements.
 
----
 
 # Development Priority
 
-Work in approximately this order:
+Work approximately in this order:
 
-```text
 1. Camera capture
-       ↓
-2. Pose detection
-       ↓
-3. Pose visualization/debugging
-       ↓
-4. Gesture event definitions
-       ↓
-5. Lean detection
-       ↓
-6. Jump detection
-       ↓
-7. Crouch detection
-       ↓
-8. Gesture state/debounce
-       ↓
-9. Keyboard output
-       ↓
-10. Profile loader
-       ↓
-11. First real game
-       ↓
-12. Second real game
-       ↓
-13. Calibration/reliability improvements
-       ↓
-14. UI polish
-       ↓
-15. Stretch features
-```
+2. MediaPipe Pose Landmarker integration
+3. Real-time pose/debug visualization
+4. Canonical gesture definitions
+5. Lean-left and lean-right recognition
+6. Jump recognition
+7. Crouch recognition
+8. PRIMARY_GESTURE recognition
+9. Gesture state/debounce/cooldown behavior
+10. Keyboard-output implementation
+11. Profile loading and mapping
+12. First real game integration
+13. Second real game integration
+14. Calibration and reliability improvements
+15. UI/demo polish
+16. Stretch features
 
-Do not skip directly to UI polish or stretch features while the core control pipeline is unreliable.
+Do not skip ahead to later features while the core pipeline is unreliable.
 
----
 
-# Primary Product Principle
+# First Implementation Milestone
 
-The computer vision system answers:
+The first implementation milestone is NOT the complete application.
 
-> What did the player physically do?
+The first milestone is:
 
-The profile system answers:
+Webcam
+→ OpenCV
+→ MediaPipe Pose Landmarker
+→ Detected body landmarks
+→ Real-time debug visualization
 
-> What should that movement do in this game?
+This milestone should establish:
 
-Keep those questions separate.
+- Reliable camera capture
+- Successful model loading
+- Real-time pose inference
+- Visible pose landmarks
+- Clean startup
+- Clean shutdown
+
+Do NOT implement:
+
+- Gesture recognition
+- Keyboard controls
+- Game profiles
+- Mobile integration
+
+as part of this first milestone unless explicitly instructed.
+
+
+# Demo Objective
+
+The final hackathon demo should prove that Body Controller is not tied to one particular game.
+
+Suggested demonstration flow:
+
+1. Start Body Controller.
+2. Show the live pose system recognizing the player.
+3. Load a runner-style profile.
+4. Demonstrate lean left/right, jump, and crouch in the first game.
+5. Return to Body Controller.
+6. Switch profiles.
+7. Launch a second keyboard-controlled game.
+8. Perform some of the same physical movements.
+9. Show that the active profile changes which keyboard controls those gestures produce.
+
+The central message is:
+
+"The vision system determines what the player physically did. The profile determines what that movement means to the current game."
+
+
+# Final Guidance for Coding Agents
+
+Before modifying code:
+
+1. Read this entire file.
+2. Read the root README.md.
+3. Read docs/architecture.md if present.
+4. Inspect existing code before creating new abstractions.
+5. Preserve work already implemented unless there is a concrete reason to change it.
+
+If working on the laptop implementation:
+
+- Work inside `/laptop`, `/profiles`, `/shared`, or relevant documentation.
+- Do not modify `/mobile`.
+- Preserve the gesture/profile separation.
+- Prioritize the current milestone over speculative features.
+
+Do not attempt to build the entire roadmap in one change unless explicitly instructed.
+
+Body Controller succeeds through a small, reliable, demonstrable pipeline, not through feature count.

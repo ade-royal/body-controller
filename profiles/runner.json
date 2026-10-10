@@ -1,0 +1,10 @@
+{
+    "name": "Runner",
+    "mappings": {
+      "JUMP": "up",
+      "CROUCH": "down",
+      "LEAN_LEFT": "left",
+      "LEAN_RIGHT": "right",
+      "PRIMARY_GESTURE": "space"
+    }
+  }

@@ -1,1 +1,5 @@
-sample
+mediapipe
+opencv-python
+python-dotenv
+pytest
+ruff
