@@ -3,7 +3,7 @@ name: Build iPad fast helper
 on:
   workflow_dispatch:
   push:
-    branches: [fast-ipad-helper, davidTests]
+    branches: [main, fast-ipad-helper]
 
 permissions:
   contents: read

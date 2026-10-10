@@ -7,7 +7,7 @@
 
 The original DeviceKit methods remain unchanged, allowing a direct latency comparison. The patch only changes two existing Swift files, so the original Xcode project compiles them without project-file edits. GitHub Actions builds an unsigned runner IPA; xtool signs it with the user's own developer account before installation. DeviceKit's [license](https://github.com/mobile-next/devicekit-ios/blob/0.0.33/LICENSE) still applies to the patched helper.
 
-The [initial Mac build](https://github.com/ade-royal/body-controller/actions/runs/38044770550) succeeded. The workflow runs on `davidTests` and can also be started manually. Its artifact is `body-controller-fast-ipad-runner`. The contained `devicekit-ios-runner.ipa` is copied locally to `.ios-tools/body-controller-fast-runner.ipa`; install it with:
+The [initial Mac build](https://github.com/ade-royal/body-controller/actions/runs/38044770550) succeeded. The workflow runs on `main` and can also be started manually. Its artifact is `body-controller-fast-ipad-runner`. The contained `devicekit-ios-runner.ipa` is copied locally to `.ios-tools/body-controller-fast-runner.ipa`; install it with:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\setup_ipad.ps1 -Fast -Resume
