@@ -1,0 +1,10 @@
+{
+    "schema_version": "0.1.0",
+    "gestures": [
+      "JUMP",
+      "CROUCH",
+      "LEAN_LEFT",
+      "LEAN_RIGHT",
+      "PRIMARY_GESTURE"
+    ]
+  }

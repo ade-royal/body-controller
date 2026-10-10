@@ -1,0 +1,10 @@
+{
+    "name": "Platformer",
+    "mappings": {
+      "JUMP": "space",
+      "CROUCH": "s",
+      "LEAN_LEFT": "a",
+      "LEAN_RIGHT": "d",
+      "PRIMARY_GESTURE": "e"
+    }
+  }
