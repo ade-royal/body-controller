@@ -1,2 +1,4 @@
 # body-controller
-Turn body movements into configurable controls for keyboard-based games using computer vision.
+Keyboard, mouse, touch, ... excercise?? 
+
+A new experimental general input interface for computers and mobile devices.
