@@ -196,6 +196,25 @@ def hysteresis(state, value, enter, exit_, neg, pos):
     return None
 
 
+def gesture_frame(events, lean_held, crouch_held):
+    """Return this frame's canonical gesture output. Does not send keys.
+
+    ``events`` lists gestures that began on this frame. Names are
+    ``STEP_L``, ``STEP_R``, ``HOP``, ``DUCK``, ``STEP_LEFT``, and
+    ``STEP_RIGHT``.
+
+    ``lean_held`` stays ``STEP_L`` or ``STEP_R`` for the whole lean, or
+    None once the torso is back. ``crouch_held`` stays True for the whole
+    crouch. ``HOP``, ``STEP_LEFT``, and ``STEP_RIGHT`` are one-shot entries
+    in ``events`` only; a step's recovery is not a held key.
+    """
+    return {
+        "events": events,
+        "lean_held": lean_held,
+        "crouch_held": crouch_held,
+    }
+
+
 def main():
     if not os.path.exists(MODEL):
         print("Downloading pose model...")
@@ -300,6 +319,8 @@ def main():
                 if step_event:
                     events.append(step_event)
                     step_fired, step_fired_t = step_event, now
+
+                gesture_frame(events, step_s, duck_s)
 
                 for e in events:
                     log.appendleft(f"{time.strftime('%H:%M:%S')}  {e:7} -> {KEY[e]}")

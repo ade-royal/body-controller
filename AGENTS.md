@@ -105,31 +105,6 @@ Prefer interpretable pose-landmark geometry, calibration, thresholds, and tempor
 Do NOT train a custom gesture-recognition neural network for the MVP.
 
 
-# Configuration
-
-Use python-dotenv to load local environment configuration from `.env`.
-
-Environment variables may contain configuration such as:
-
-- Camera index
-- Camera resolution
-- MediaPipe model path
-- MediaPipe confidence settings
-- Debug flags
-- Default profile
-
-Do NOT store the following in `.env`:
-
-- Game-control mappings
-- Gesture definitions
-- User calibration data
-- Hardcoded pose logic
-
-`.env.example` defines the supported environment variables.
-
-The real `.env` file must not be committed.
-
-
 # Game Input
 
 Keyboard output must be isolated inside:
@@ -200,7 +175,6 @@ body-controller/
 ├── AGENTS.md
 ├── LICENSE
 ├── .gitignore
-├── .env.example
 ├── .python-version
 │
 ├── laptop/
@@ -692,31 +666,6 @@ Do NOT interpret this directory as a location for custom Body Controller ML-mode
 Do not begin custom model training unless explicitly requested.
 
 
-# Environment Configuration
-
-`.env.example` defines local runtime configuration.
-
-Expected configuration includes:
-
-DEBUG
-CAMERA_INDEX
-CAMERA_WIDTH
-CAMERA_HEIGHT
-
-POSE_MODEL_PATH
-POSE_DETECTION_CONFIDENCE
-POSE_PRESENCE_CONFIDENCE
-POSE_TRACKING_CONFIDENCE
-
-DEFAULT_PROFILE
-SHOW_DEBUG_VIEW
-SHOW_LANDMARKS
-
-Developers may copy `.env.example` to `.env` and customize local values.
-
-Never commit sensitive information from `.env`.
-
-
 # Dependencies
 
 Runtime dependencies belong in:
@@ -727,7 +676,6 @@ Current starting dependencies:
 
 mediapipe
 opencv-python
-python-dotenv
 
 Development-only dependencies belong in:
 

@@ -1,6 +1,6 @@
 """Crouch follows hip-to-ankle span, not shoulder image height."""
 
-import pose_test as pt
+import pose_controller as pt
 
 ASPECT = 640 / 480
 
