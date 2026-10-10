@@ -22,4 +22,4 @@ a swipe is busy. The custom DeviceKit fast swipe is the default; use
 WebDriverAgent. Ten alternating swipes per DeviceKit method measured median
 acknowledgment of 303 ms for the custom path versus 344 ms for the original.
 These are not movement-to-screen timings, and the delay is still significant.
-See [IOS_SETUP.md](IOS_SETUP.md) for helper setup and launch instructions.
+See [IOS_SETUP.md](IOS_SETUP.md) for iPad or iPhone helper setup and launch instructions.

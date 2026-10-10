@@ -1,9 +1,96 @@
-# Windows to iPad swipe prototype
+# Windows to iPad/iPhone swipe prototype
 
 The movement detector remains on Windows. `devicekit_swipe.py` now defaults to
 the custom fast swipe method for LEFT, RIGHT, UP, and DOWN. `ios_swipe.py` is the
 WebDriverAgent (WDA) fallback. Both accept STEP_L, STEP_R, HOP, and DUCK.
 There is no change to the pose detector's classification.
+
+## Try a friend's iPhone on the prepared Windows PC
+
+These steps use the **same Windows PC and repository folder** that already ran
+the iPad demo. Body tracking still runs through the PC's camera; the iPhone runs
+the game and receives swipes. The `setup_ipad.ps1` name is historical: its `-Fast`
+option can install the helper on an iPhone too. The script depends on local files
+in `.ios-tools/` and `.venv-ios/`, which are ignored by Git. A fresh clone on a
+different computer does not yet have those tools or the unsigned helper IPA.
+
+1. Stop the arrow/pose controller and the two DeviceKit runner/USB-forward
+   terminals (Ctrl+C). Unplug the iPad. Connect **only the iPhone** by USB,
+   unlock it, and accept **Trust This Computer** on the phone. Keep it unlocked
+   during setup. Having only one Apple device attached keeps both the installer
+   and USB forward aimed at the iPhone.
+2. On the iPhone, turn on **Settings → Privacy & Security → Developer Mode**.
+   Restart when prompted, unlock, and confirm **Enable**. If the option is
+   missing, finish USB pairing and run the discovery command below, then check
+   Settings again. [Apple explains when Developer Mode appears](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device/).
+3. In PowerShell, go to this repository folder and check that xtool sees the
+   iPhone. The output should name the friend's iPhone, not your iPad:
+
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File .\setup_ipad.ps1 -Fast -Check
+   ```
+
+4. Sign and install the fast helper **for this iPhone**:
+
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File .\setup_ipad.ps1 -Fast
+   ```
+
+   Choose login mode **1: Password** if using a free Apple Account (formerly
+   Apple ID). Enter the account email, password, and two-factor code only at
+   xtool's local prompts. A paid Apple Developer Program membership is not
+   required for this [xtool password mode](https://xtool.sh/documentation/xtool/installation-macos/).
+   If your friend needs an account, Apple has
+   [instructions for creating a free one](https://support.apple.com/en-us/108647).
+   xtool uses the account to register the phone, sign the helper, and install
+   it. If login succeeds but installation fails, retry without signing in again:
+
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File .\setup_ipad.ps1 -Fast -Resume
+   ```
+
+5. If the iPhone asks, trust the installed developer profile under **Settings →
+   General → VPN & Device Management**. Find the actual signed runner bundle ID;
+   it usually contains `devicekit-iosUITests` and may have an `XTL-...` prefix:
+
+   ```powershell
+   .\.venv-ios\Scripts\python.exe .ios-tools\pmd_cli.py apps list | Select-String 'devicekit-iosUITests'
+   ```
+
+6. Open three PowerShell terminals in this folder. Keep the first two running.
+   In terminal 1, paste the **full** bundle ID found above into `$runnerBundle`:
+
+   ```powershell
+   $runnerBundle = 'PASTE_THE_FULL_DEVICEKIT_BUNDLE_ID_HERE'
+   .\.venv-ios\Scripts\python.exe .ios-tools\pmd_cli.py developer dvt xcuitest $runnerBundle
+   ```
+
+   In terminal 2, forward the helper's port over USB:
+
+   ```powershell
+   .\.venv-ios\Scripts\python.exe .ios-tools\pmd_cli.py usbmux forward 12004 12004
+   ```
+
+   Open the game on the iPhone **before** starting a controller. In terminal 3,
+   test arrows first, then stop that controller and try body tracking:
+
+   ```powershell
+   .\.venv-ios\Scripts\python.exe ipad_arrows.py
+   .\.venv\Scripts\python.exe ipad_pose.py
+   ```
+
+   Run only one controller at a time. In the camera window press **C**, hold a
+   neutral pose for three seconds, and press **Q** to quit. If you switch games
+   or rotate the phone, restart the controller so fast swipes use the new screen
+   geometry. iPhone responsiveness has not been measured yet.
+
+To return to your iPad, stop the controller, runner, and port forward; unplug
+the iPhone and reconnect only the iPad. Its computer trust and Developer Mode
+should still be there. If its signed helper is still installed and its signing
+profile is valid, start its runner and port forward again without reinstalling.
+If the free signing profile has expired, sign/install again using the Apple
+Account intended for the iPad. Apple says [free Personal Team profiles expire
+after seven days](https://developer.apple.com/help/account/basics/about-your-developer-account).
 
 ## Use the faster helper on this machine
 
