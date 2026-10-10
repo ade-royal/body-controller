@@ -1,0 +1,2 @@
+# Install into .venv-ios to keep the pose detector's packages separate.
+pymobiledevice3==11.26.0
