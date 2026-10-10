@@ -215,7 +215,8 @@ def gesture_frame(events, lean_held, crouch_held):
     }
 
 
-def main():
+def main(on_gesture_frame=None):
+    """Run pose tracking, optionally delivering frames to a separate output adapter."""
     if not os.path.exists(MODEL):
         print("Downloading pose model...")
         urllib.request.urlretrieve(MODEL_URL, MODEL)
@@ -320,7 +321,9 @@ def main():
                     events.append(step_event)
                     step_fired, step_fired_t = step_event, now
 
-                gesture_frame(events, step_s, duck_s)
+                output = gesture_frame(events, step_s, duck_s)
+                if on_gesture_frame is not None:
+                    on_gesture_frame(output)
 
                 for e in events:
                     log.appendleft(f"{time.strftime('%H:%M:%S')}  {e:7} -> {KEY[e]}")

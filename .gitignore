@@ -222,3 +222,7 @@ __marimo__/
 
 # MediaPipe model files (downloaded at runtime)
 *.task
+
+# Local iPad tooling and signing material
+.venv-ios/
+.ios-tools/
