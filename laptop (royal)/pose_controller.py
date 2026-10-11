@@ -2,6 +2,7 @@
 
 Controls: C = calibrate (stand in your neutral stance, hold still 3s), Q = quit.
 """
+
 import collections
 import math
 import os
@@ -14,56 +15,91 @@ import numpy as np
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
-MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_landmarker_lite.task")
-MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-             "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task")
+MODEL = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "pose_landmarker_lite.task"
+)
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+    "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+)
 
 LSH, RSH, LHIP, RHIP = 11, 12, 23, 24  # left/right shoulder, left/right hip
 LANK, RANK = 27, 28  # left/right ankle
-EDGES = [(11, 12), (11, 13), (13, 15), (12, 14), (14, 16), (11, 23), (12, 24),
-         (23, 24), (23, 25), (25, 27), (24, 26), (26, 28)]
+EDGES = [
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+    (11, 23),
+    (12, 24),
+    (23, 24),
+    (23, 25),
+    (25, 27),
+    (24, 26),
+    (26, 28),
+]
 
-# (enter, exit) thresholds -- tune these while watching the panel
-# lean: shoulder-mid x minus hip-mid x, relative to the calibrated stance,
-# in calibrated shoulder-widths. 0.20 is a clear torso tilt. Exit is 60% of
-# enter so a held lean survives small jitter and releases once the torso
-# comes most of the way back.
-LEAN = (0.20, 0.12)
-# Lateral step speed in current shoulder-widths per second. Hip midpoint,
-# not ankles: a frame is already dropped unless the hips are visible, and a
-# laptop camera often crops the feet. Enter 1.0 is one shoulder-width per
-# second, a clear sidestep rather than standing jitter. Exit 0.40 ends the
-# step once that travel has mostly stopped, so another step can count.
-# STEP_WINDOW is the recent hip motion included in the speed.
-STEP_V = (1.0, 0.40)
-STEP_WINDOW = 0.20
-# Crouch is the fraction of the calibrated hip-to-ankle span that has collapsed.
-# 0.20 is a clear squat, not a small knee bend. Exit 0.12 releases once the
-# legs are most of the way straight again.
+# Live recognizer settings. Distances are body-relative, times are seconds.
+# Lean is disabled. A movement needs travel plus speed; a jump needs takeoff
+# evidence and a completed landing before it can repeat.
 DUCK = (0.20, 0.12)
-HOP_V = 1.5          # upward hip speed, torso lengths / second
-HOP_RISE = 0.05      # hips must also be above neutral, so standing up from a duck isn't a hop
-COOLDOWN = 0.4       # seconds after a hop where the landing can't trigger a duck
+TRAVEL_EXIT_SPEED = 0.40
+MOTION_WINDOW = 0.12
+TRACKING_GAP = 0.25
+SMOOTH_SECONDS = 0.035
+TRAVEL_MIN = 0.25  # shoulder widths from start / latest turning point
+TRAVEL_SPEED = 1.0  # shoulder widths per second
+TRAVEL_CONFIRM = 0.05
+TRAVEL_SETTLE = 0.16
+JUMP_SPEED = 0.70  # torso lengths per second over MOTION_WINDOW
+JUMP_RISE = 0.10  # torso lengths above standing hips
+FOOT_RISE = 0.045  # extra takeoff evidence when ankles are visible
+CROUCH_CONFIRM = 0.06
+LANDING_SETTLE = 0.06
 
-KEY = {"STEP_L": "LEFT", "STEP_R": "RIGHT", "HOP": "UP", "DUCK": "DOWN",
-      "STEP_LEFT": "STEP_LEFT", "STEP_RIGHT": "STEP_RIGHT"}
+KEY = {
+    "STEP_L": "LEFT",
+    "STEP_R": "RIGHT",
+    "HOP": "UP",
+    "DUCK": "DOWN",
+    "STEP_LEFT": "STEP_LEFT",
+    "STEP_RIGHT": "STEP_RIGHT",
+}
 
 
 def features(lm, aspect):
     # scale x by width/height so x and y are in the same units
     sx, sy = (lm[LSH].x + lm[RSH].x) / 2 * aspect, (lm[LSH].y + lm[RSH].y) / 2
     hx, hy = (lm[LHIP].x + lm[RHIP].x) / 2 * aspect, (lm[LHIP].y + lm[RHIP].y) / 2
-    return {"sx": sx, "sy": sy, "hx": hx, "hy": hy,
-            "torso": math.hypot(sx - hx, sy - hy),            # body-size ruler
-            "sw": abs(lm[LSH].x - lm[RSH].x) * aspect}        # body-size ruler
+    return {
+        "sx": sx,
+        "sy": sy,
+        "hx": hx,
+        "hy": hy,
+        "torso": math.hypot(sx - hx, sy - hy),  # body-size ruler
+        "sw": abs(lm[LSH].x - lm[RSH].x) * aspect,
+    }  # body-size ruler
 
 
 def _visibility(point):
-    return 1.0 if point.visibility is None else point.visibility
+    value = 1.0 if point.visibility is None else point.visibility
+    return value if math.isfinite(value) else 0.0
 
 
 def legs_visible(lm, minimum=0.5):
     return min(_visibility(lm[i]) for i in (LHIP, RHIP, LANK, RANK)) >= minimum
+
+
+def feet_observed(lm):
+    """Extrapolated ankles beyond the camera image are not takeoff evidence."""
+    return legs_visible(lm) and all(
+        math.isfinite(lm[i].x)
+        and math.isfinite(lm[i].y)
+        and 0 <= lm[i].x <= 1
+        and 0 <= lm[i].y <= 1
+        for i in (LANK, RANK)
+    )
 
 
 def leg_ratio(lm, shoulder_width):
@@ -96,117 +132,13 @@ def average_baseline(samples):
     return {k: float(np.mean([s[k] for s in samples])) for k in samples[0]}
 
 
-def horizontal_signals(current, base):
-    """Return (lean, lean_old, hip_x).
-
-    lean is the scale-free torso ratio and drives LEFT/RIGHT.
-    lean_old is the previous image-gap formula, for comparison only.
-    """
-    gap = current["sx"] - current["hx"]
-    base_gap = base["sx"] - base["hx"]
-    lean = gap / current["sw"] - base_gap / base["sw"]
-    lean_old = (gap - base_gap) / base["sw"]
-    hip_x = (current["hx"] - base["hx"]) / base["sw"]
-    return lean, lean_old, hip_x
-
-
-def lateral_speed(hx_then, hx_now, dt, shoulder_width):
-    """Hip-midpoint speed in shoulder-widths per second. Left is negative."""
-    if dt <= 0 or shoulder_width <= 0:
-        return 0.0
-    return (hx_now - hx_then) / dt / shoulder_width
-
-
-def hip_window(history, hx, now):
-    """Record hip x. Return (hx_then, dt) over the recent STEP_WINDOW."""
-    if history and now - history[-1][0] > STEP_WINDOW * 2:
-        history.clear()
-    history.append((now, hx))
-    cutoff = now - STEP_WINDOW
-    while len(history) > 2 and history[1][0] <= cutoff:
-        history.popleft()
-    t0, x0 = history[0]
-    return x0, now - t0
-
-
-def track_lateral_speed(history, hx, now, shoulder_width):
-    """Record hip x and return speed over the recent STEP_WINDOW."""
-    x0, dt = hip_window(history, hx, now)
-    return lateral_speed(x0, hx, dt, shoulder_width)
-
-
-def step_update(state, speed, dt):
-    """Return (state, event). state is None, or (phase, quiet seconds).
-
-    A step emits once on the way out. Recovery swallows the return trip.
-    NEUTRAL returns only after speed stays inside the exit band for STEP_WINDOW.
-    """
-    enter, exit_ = STEP_V
-    phase, quiet = (None, 0.0) if state is None else state
-    event = None
-    if phase == "MOVING_LEFT" and speed >= -exit_:
-        phase, quiet = "RECOVER_LEFT", 0.0
-    elif phase == "MOVING_RIGHT" and speed <= exit_:
-        phase, quiet = "RECOVER_RIGHT", 0.0
-
-    if phase == "RECOVER_LEFT":
-        if speed <= -enter:
-            phase, quiet = "MOVING_LEFT", 0.0
-        elif abs(speed) <= exit_:
-            quiet += dt
-            if quiet >= STEP_WINDOW:
-                phase, quiet = None, 0.0
-        else:
-            quiet = 0.0
-    elif phase == "RECOVER_RIGHT":
-        if speed >= enter:
-            phase, quiet = "MOVING_RIGHT", 0.0
-        elif abs(speed) <= exit_:
-            quiet += dt
-            if quiet >= STEP_WINDOW:
-                phase, quiet = None, 0.0
-        else:
-            quiet = 0.0
-    elif phase is None:
-        if speed <= -enter:
-            phase, event = "MOVING_LEFT", "STEP_LEFT"
-        elif speed >= enter:
-            phase, event = "MOVING_RIGHT", "STEP_RIGHT"
-
-    if phase is None:
-        return None, event
-    return (phase, quiet), event
-
-
-def step_label(state):
-    if state is None:
-        return "NEUTRAL"
-    return state[0]
-
-
-def hysteresis(state, value, enter, exit_, neg, pos):
-    if state == neg:
-        return neg if value < -exit_ else None
-    if state == pos:
-        return pos if value > exit_ else None
-    if value <= -enter:
-        return neg
-    if value >= enter:
-        return pos
-    return None
-
-
 def gesture_frame(events, lean_held, crouch_held):
     """Return this frame's canonical gesture output. Does not send keys.
 
-    ``events`` lists gestures that began on this frame. Names are
-    ``STEP_L``, ``STEP_R``, ``HOP``, ``DUCK``, ``STEP_LEFT``, and
-    ``STEP_RIGHT``.
-
-    ``lean_held`` stays ``STEP_L`` or ``STEP_R`` for the whole lean, or
-    None once the torso is back. ``crouch_held`` stays True for the whole
-    crouch. ``HOP``, ``STEP_LEFT``, and ``STEP_RIGHT`` are one-shot entries
-    in ``events`` only; a step's recovery is not a held key.
+    ``events`` lists HOP, DUCK, STEP_LEFT and STEP_RIGHT when actions begin.
+    Live recognition always supplies None for ``lean_held``; the field is kept
+    for adapter compatibility. ``crouch_held`` stays True while crouching.
+    Held output never repeats a one-shot event.
     """
     return {
         "events": events,
@@ -215,174 +147,479 @@ def gesture_frame(events, lean_held, crouch_held):
     }
 
 
+class LateralMotion:
+    """One event per travel action, including deliberate immediate reversals."""
+
+    def __init__(self):
+        self.history = collections.deque()
+        self.anchor = None
+        self.direction = 0
+        self.quiet = 0.0
+        self.candidate = 0
+        self.confirm = 0.0
+        self.speed = 0.0
+        self.travel = 0.0
+        self.reason = "waiting for travel"
+
+    def update(self, hx: float, sx: float, now: float, width: float) -> str | None:
+        center = (hx + sx) / 2
+        if not self.history:
+            self.anchor = (center, hx, sx)
+            self.history.append((now, center))
+            return None
+        dt = now - self.history[-1][0]
+        self.history.append((now, center))
+        while len(self.history) > 2 and self.history[1][0] <= now - MOTION_WINDOW:
+            self.history.popleft()
+        elapsed = now - self.history[0][0]
+        self.speed = (center - self.history[0][1]) / max(elapsed, 1e-6) / width
+        if self.direction and self.direction * (center - self.anchor[0]) > 0:
+            # Follow the furthest point reached, so reversal is measured locally.
+            self.anchor = (center, hx, sx)
+        delta = (center - self.anchor[0]) / width
+        self.travel = delta
+        direction = 1 if delta > 0 else -1
+        evidence = (
+            abs(delta) >= TRAVEL_MIN
+            and direction * self.speed >= TRAVEL_SPEED
+            and direction * (hx - self.anchor[1]) / width >= TRAVEL_MIN * 0.6
+            and direction * (sx - self.anchor[2]) / width >= TRAVEL_MIN * 0.3
+            and direction != self.direction
+        )
+        if evidence:
+            self.confirm = self.confirm + dt if self.candidate == direction else dt
+            self.candidate = direction
+            self.reason = "confirming travel"
+            if self.confirm >= TRAVEL_CONFIRM:
+                self.direction = direction
+                self.anchor = (center, hx, sx)
+                self.candidate, self.confirm, self.quiet = 0, 0.0, 0.0
+                self.reason = "travel accepted"
+                return "STEP_RIGHT" if direction > 0 else "STEP_LEFT"
+        else:
+            self.candidate, self.confirm = 0, 0.0
+            self.reason = (
+                "waiting for travel" if not self.direction else "action active"
+            )
+        if abs(self.speed) < TRAVEL_EXIT_SPEED:
+            self.quiet += dt
+            if self.quiet >= TRAVEL_SETTLE:
+                self.direction = 0
+                self.anchor = (center, hx, sx)
+                self.reason = "ready"
+        else:
+            self.quiet = 0.0
+        return None
+
+    @property
+    def phase(self):
+        return {0: "READY", -1: "MOVING_LEFT", 1: "MOVING_RIGHT"}[self.direction]
+
+
+class MotionRecognizer:
+    """Interpret landmark motion without knowing about games or sending inputs.
+
+    Uses the existing event names for adapter compatibility. Lean output is always
+    None. All motion history is discarded on tracking loss or a long frame gap.
+    """
+
+    def __init__(self, baseline):
+        self.base = baseline.copy()
+        self.width = max(baseline["sw"], 1e-4)
+        self.torso = max(baseline["torso"], 1e-4)
+        self.neutral_hy = baseline["hy"]
+        self.neutral_sy = baseline["sy"]
+        self.neutral_ay = baseline.get("ay")
+        self.reset()
+
+    def reset(self):
+        self.history = collections.deque()
+        self.lateral = LateralMotion()
+        self.smoothed = None
+        self.last_time = None
+        self.crouch_held = False
+        self.crouch_active = False
+        self.crouch_seconds = 0.0
+        self.crouch_release_seconds = 0.0
+        self.recovering = False
+        self.standing_seconds = 0.0
+        self.jump_phase = "READY"
+        self.landing_seconds = 0.0
+        self.landed_at = -math.inf
+        self.reason = "waiting for stable tracking"
+        self.values = {}
+        self.tracking_ready = False
+        self.ready_seconds = 0.0
+
+    def update(self, lm, now: float, aspect: float) -> dict:
+        if lm is None or min(_visibility(lm[i]) for i in (LSH, RSH, LHIP, RHIP)) < 0.5:
+            self.reset()
+            return gesture_frame([], None, False)
+        f = features(lm, aspect)
+        if not all(math.isfinite(v) for v in f.values()) or f["torso"] < 0.02:
+            self.reset()
+            return gesture_frame([], None, False)
+        if self.last_time is not None and (
+            now <= self.last_time or now - self.last_time > TRACKING_GAP
+        ):
+            self.reset()
+        dt = 0.0 if self.last_time is None else now - self.last_time
+        self.last_time = now
+        ay = (lm[LANK].y + lm[RANK].y) / 2 if feet_observed(lm) else None
+        if ay is not None and not math.isfinite(ay):
+            ay = None
+        alpha = 1.0 if self.smoothed is None else 1 - math.exp(-dt / SMOOTH_SECONDS)
+        old = self.smoothed or f
+        f = {k: old[k] + alpha * (v - old[k]) for k, v in f.items()}
+        self.smoothed = f
+        self.history.append((now, f["hy"], f["sy"]))
+        while len(self.history) > 2 and self.history[1][0] <= now - MOTION_WINDOW:
+            self.history.popleft()
+        elapsed = now - self.history[0][0]
+        hv = (self.history[0][1] - f["hy"]) / max(elapsed, 1e-6) / self.torso
+        sv = (self.history[0][2] - f["sy"]) / max(elapsed, 1e-6) / self.torso
+        rise = (self.neutral_hy - f["hy"]) / self.torso
+        shoulder_rise = (self.neutral_sy - f["sy"]) / self.torso
+        foot_rise = (
+            None
+            if ay is None or self.neutral_ay is None
+            else (self.neutral_ay - ay) / self.torso
+        )
+        neutral_leg = self.base.get("leg")
+        duck = (
+            None
+            if ay is None or not neutral_leg
+            else (1 - (ay - f["hy"]) / self.width / neutral_leg)
+        )
+        stable = abs(hv) < 0.20 and abs(sv) < 0.20
+        grounded = (
+            foot_rise <= FOOT_RISE * 0.5 if foot_rise is not None else abs(rise) <= 0.06
+        )
+        if not self.tracking_ready:
+            if grounded and stable and abs(rise) < 0.12:
+                self.ready_seconds += dt
+                self.tracking_ready = self.ready_seconds >= MOTION_WINDOW
+            else:
+                self.ready_seconds = 0.0
+        events = []
+        takeoff = (
+            self.tracking_ready
+            and elapsed >= MOTION_WINDOW * 0.5
+            and hv >= JUMP_SPEED
+            and sv >= JUMP_SPEED * 0.5
+            and rise >= JUMP_RISE
+            and shoulder_rise >= JUMP_RISE * 0.6
+        )
+        if foot_rise is not None:
+            takeoff = takeoff and foot_rise >= FOOT_RISE
+        else:
+            # With cropped feet, demand a larger coordinated rise. Recovery alone
+            # cannot establish takeoff in this mode.
+            takeoff = (
+                takeoff
+                and rise >= 0.22
+                and shoulder_rise >= 0.16
+                and not self.recovering
+            )
+        if self.jump_phase == "READY" and takeoff:
+            events.append("HOP")
+            self.jump_phase = "AIRBORNE"
+            self.crouch_held, self.crouch_seconds = False, 0.0
+            self.crouch_active = False
+            self.crouch_release_seconds = 0.0
+            self.reason = "takeoff accepted"
+        elif self.jump_phase != "READY":
+            if hv < -0.2:
+                self.jump_phase = "LANDING"
+            if self.jump_phase == "LANDING" and grounded:
+                self.landing_seconds += dt
+                if self.landing_seconds >= LANDING_SETTLE:
+                    self.jump_phase = "READY"
+                    self.landed_at = now
+                    self.recovering = True
+                    self.landing_seconds = 0.0
+            else:
+                self.landing_seconds = 0.0
+            self.reason = "jump active; waiting for landing"
+        else:
+            self.reason = "waiting for coordinated takeoff"
+            if self.recovering:
+                self.reason = "crouch / landing recovery"
+            elif foot_rise is not None and takeoff is False and hv >= JUMP_SPEED:
+                self.reason = "rise without takeoff evidence"
+
+        if (
+            self.jump_phase == "READY"
+            and self.tracking_ready
+            and now - self.landed_at > 0.12
+            and duck is not None
+        ):
+            if self.crouch_active:
+                if duck <= DUCK[1]:
+                    self.crouch_release_seconds += dt
+                    if self.crouch_release_seconds >= CROUCH_CONFIRM:
+                        self.crouch_held, self.crouch_active = False, False
+                        self.crouch_seconds = 0.0
+                else:
+                    self.crouch_release_seconds = 0.0
+                    self.crouch_held = True
+                self.recovering = True
+            elif duck > DUCK[0]:
+                self.crouch_seconds += dt
+                self.recovering = True
+                if self.crouch_seconds >= CROUCH_CONFIRM:
+                    self.crouch_held = True
+                    self.crouch_active = True
+                    self.crouch_release_seconds = 0.0
+                    events.append("DUCK")
+            else:
+                self.crouch_seconds = 0.0
+        elif duck is None:
+            # Release unavailable held output, but retain recovery memory.
+            self.crouch_held = False
+            self.crouch_seconds = 0.0
+
+        upright = duck is None or duck < DUCK[1]
+        if self.jump_phase == "READY" and upright and stable and abs(rise) < 0.10:
+            self.standing_seconds += dt
+            if self.standing_seconds >= TRAVEL_SETTLE:
+                self.recovering = False
+                adjust = 1 - math.exp(-dt / 1.5)
+                ratio = f["torso"] / self.torso
+                if 0.75 < ratio < 1.25:
+                    self.width *= 1 + adjust * (ratio - 1)
+                    self.torso += adjust * (f["torso"] - self.torso)
+                self.neutral_hy += adjust * (f["hy"] - self.neutral_hy)
+                self.neutral_sy += adjust * (f["sy"] - self.neutral_sy)
+                if ay is not None:
+                    self.neutral_ay = (
+                        ay
+                        if self.neutral_ay is None
+                        else (self.neutral_ay + adjust * (ay - self.neutral_ay))
+                    )
+        else:
+            self.standing_seconds = 0.0
+
+        lateral_event = self.lateral.update(f["hx"], f["sx"], now, self.width)
+        if lateral_event:
+            events.append(lateral_event)
+        self.values = {
+            "hop_v": hv,
+            "rise": rise,
+            "step_v": self.lateral.speed,
+            "travel": self.lateral.travel,
+        }
+        if duck is not None:
+            self.values["duck"] = duck
+        if foot_rise is not None:
+            self.values["foot_up"] = foot_rise
+        return gesture_frame(events, None, self.crouch_held)
+
+
 def main(on_gesture_frame=None):
     """Run pose tracking, optionally delivering frames to a separate output adapter."""
     if not os.path.exists(MODEL):
         print("Downloading pose model...")
         urllib.request.urlretrieve(MODEL_URL, MODEL)
-    landmarker = vision.PoseLandmarker.create_from_options(vision.PoseLandmarkerOptions(
-        base_options=mp_python.BaseOptions(model_asset_path=MODEL),
-        running_mode=vision.RunningMode.VIDEO, num_poses=1))
+    landmarker = vision.PoseLandmarker.create_from_options(
+        vision.PoseLandmarkerOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=MODEL),
+            running_mode=vision.RunningMode.VIDEO,
+            num_poses=1,
+        )
+    )
 
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))  # MJPG unlocks higher fps on most webcams
+    cap.set(
+        cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG")
+    )  # MJPG unlocks higher fps on most webcams
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 60)
     if not cap.isOpened():
+        cap.release()
+        landmarker.close()
         raise SystemExit("Could not open webcam 0")
 
     base, samples, leg_samples, calib_end = None, [], [], 0.0
-    step_s, duck_s = None, False
-    prev, last_hop, last_ts = None, 0.0, -1
-    hip_hist = collections.deque()
-    lat_s, lat_t = None, None
+    recognizer = None
+    last_ts = -1
     step_fired, step_fired_t = "", 0.0
-    log = collections.deque(maxlen=10)
+    log = collections.deque(maxlen=4)
     big, big_t = "", 0.0
     start = last_frame = time.perf_counter()
     fps = 0.0
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        now = time.perf_counter()
-        fps = 0.9 * fps + 0.1 / max(now - last_frame, 1e-6)
-        last_frame = now
-        frame = cv2.flip(frame, 1)  # mirror: your left = screen left
-        h, w = frame.shape[:2]
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            now = time.perf_counter()
+            fps = 0.9 * fps + 0.1 / max(now - last_frame, 1e-6)
+            last_frame = now
+            frame = cv2.flip(frame, 1)  # mirror: your left = screen left
+            h, w = frame.shape[:2]
 
-        ts = max(int((now - start) * 1000), last_ts + 1)  # VIDEO mode needs increasing timestamps
-        last_ts = ts
-        t = time.perf_counter()
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        res = landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts)
-        infer_ms = (time.perf_counter() - t) * 1000
+            ts = max(
+                int((now - start) * 1000), last_ts + 1
+            )  # VIDEO mode needs increasing timestamps
+            last_ts = ts
+            t = time.perf_counter()
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            res = landmarker.detect_for_video(
+                mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts
+            )
+            infer_ms = (time.perf_counter() - t) * 1000
 
-        status, vals, legs_note = "no person", {}, ""
-        lm = res.pose_landmarks[0] if res.pose_landmarks else None
-        if lm and min(1.0 if lm[i].visibility is None else lm[i].visibility
-                      for i in (LSH, RSH, LHIP, RHIP)) < 0.5:
-            status, lm = "step back: shoulders/hips not visible", None
+            status, vals, legs_note = "no person", {}, ""
+            lm = res.pose_landmarks[0] if res.pose_landmarks else None
+            if lm and min(_visibility(lm[i]) for i in (LSH, RSH, LHIP, RHIP)) < 0.5:
+                status, lm = "step back: shoulders/hips not visible", None
+            if lm and not all(math.isfinite(p.x) and math.isfinite(p.y) for p in lm):
+                status, lm = "unstable pose tracking", None
 
-        if lm:
-            for a, b in EDGES:
-                cv2.line(frame, (int(lm[a].x * w), int(lm[a].y * h)),
-                         (int(lm[b].x * w), int(lm[b].y * h)), (0, 255, 0), 2)
-            f = features(lm, w / h)
-            status = "press C to calibrate"
-            if calib_end:
-                status = f"hold still... {calib_end - now:.1f}s"
-                if now > calib_end - 1.0:  # average the last second
-                    samples.append(f)
-                    if legs_visible(lm):
-                        ratio = leg_ratio(lm, f["sw"])
-                        if ratio is not None:
-                            leg_samples.append(ratio)
-                if now >= calib_end and samples:
-                    base = average_baseline(samples)
-                    base["leg"] = float(np.mean(leg_samples)) if leg_samples else None
-                    samples, leg_samples, calib_end = [], [], 0.0
-            elif base:
-                status = "tracking"
-                vals["lean"], vals["lean_old"], vals["hip_x"] = horizontal_signals(f, base)
-                vals["duck_old"] = (f["sy"] - base["sy"]) / base["torso"]
-                duck = crouch_measurement(lm, f["sw"], base.get("leg"))
-                if duck is None:
-                    legs_note = "low"
-                else:
-                    vals["duck"] = duck
-                    legs_note = "ok"
-                rise = (base["hy"] - f["hy"]) / base["torso"]
-                vals["hop_v"] = 0.0 if prev is None else (prev[0] - f["hy"]) / (now - prev[1]) / base["torso"]
-                prev = (f["hy"], now)
+            if lm:
+                for a, b in EDGES:
+                    cv2.line(
+                        frame,
+                        (int(lm[a].x * w), int(lm[a].y * h)),
+                        (int(lm[b].x * w), int(lm[b].y * h)),
+                        (0, 255, 0),
+                        2,
+                    )
+                f = features(lm, w / h)
+                status = "press C to calibrate"
+                if calib_end:
+                    status = f"hold still... {calib_end - now:.1f}s"
+                    if now > calib_end - 1.0:  # average the last second
+                        usable = (
+                            all(math.isfinite(v) for v in f.values())
+                            and f["torso"] >= 0.02
+                            and f["sw"] >= 0.005
+                        )
+                        if usable:
+                            samples.append(f)
+                        if usable and feet_observed(lm):
+                            ratio = leg_ratio(lm, f["sw"])
+                            if ratio is not None:
+                                leg_samples.append(
+                                    (ratio, (lm[LANK].y + lm[RANK].y) / 2)
+                                )
+                    if now >= calib_end and samples:
+                        base = average_baseline(samples)
+                        base["leg"] = (
+                            float(np.mean([s[0] for s in leg_samples]))
+                            if leg_samples
+                            else None
+                        )
+                        base["ay"] = (
+                            float(np.mean([s[1] for s in leg_samples]))
+                            if leg_samples
+                            else None
+                        )
+                        recognizer = MotionRecognizer(base)
+                        samples, leg_samples, calib_end = [], [], 0.0
+                elif base:
+                    status = "tracking"
+                    output = recognizer.update(lm, now, w / h)
+                    vals = recognizer.values
+                    legs_note = "ok" if "duck" in vals else "low"
+                    events = output["events"]
+                    for event in events:
+                        if event.startswith("STEP_"):
+                            step_fired, step_fired_t = event, now
+                    if on_gesture_frame is not None:
+                        on_gesture_frame(output)
 
-                events = []
-                new = hysteresis(step_s, vals["lean"], *LEAN, "STEP_L", "STEP_R")
-                if new and new != step_s:
-                    events.append(new)
-                step_s = new
-                if vals["hop_v"] > HOP_V and rise > HOP_RISE and now - last_hop > COOLDOWN:
-                    events.append("HOP")
-                    last_hop = now
-                if now - last_hop > COOLDOWN and "duck" in vals:
-                    duck_s, duck_event = crouch_update(duck_s, vals["duck"])
-                    if duck_event:
-                        events.append(duck_event)
+                    for e in events:
+                        log.appendleft(
+                            f"{time.strftime('%H:%M:%S')}  {e:7} -> {KEY[e]}"
+                        )
+                        big, big_t = KEY[e], now
+            else:
+                if recognizer is not None:
+                    output = recognizer.update(None, now, w / h)
+                    if on_gesture_frame is not None:
+                        on_gesture_frame(output)
 
-                x0, win_dt = hip_window(hip_hist, f["hx"], now)
-                vals["step_v"] = lateral_speed(x0, f["hx"], win_dt, f["sw"])
-                vals["step_old"] = lateral_speed(x0, f["hx"], win_dt, base["sw"])
-                dt = 0.0 if lat_t is None else max(0.0, now - lat_t)
-                lat_t = now
-                lat_s, step_event = step_update(lat_s, vals["step_v"], dt)
-                if step_event:
-                    events.append(step_event)
-                    step_fired, step_fired_t = step_event, now
+            panel = np.zeros((h, 380, 3), np.uint8)
 
-                output = gesture_frame(events, step_s, duck_s)
+            def put(text, y, color=(230, 230, 230), scale=0.55, thick=1, panel=panel):
+                cv2.putText(
+                    panel, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick
+                )
+
+            put(f"FPS {fps:4.0f}   pose {infer_ms:4.1f} ms", 28)
+            put(status, 54, (0, 200, 255))
+            put("lean inputs disabled", 78, (0, 200, 255))
+            rows = [
+                ("travel", "sw", TRAVEL_MIN, False),
+                ("step_v", "sw/s", TRAVEL_SPEED, False),
+                ("duck", "leg", DUCK[0], recognizer and recognizer.crouch_held),
+                ("hop_v", "/s", JUMP_SPEED, False),
+                ("rise", "torso", JUMP_RISE, False),
+                ("foot_up", "torso", FOOT_RISE, False),
+            ]
+            for i, (name, unit, thr, active) in enumerate(rows):
+                if name not in vals:
+                    continue
+                note = f"needs {thr:.2f}"
+                put(
+                    f"{name:7}{vals[name]:+6.2f} {unit:5} ({note})",
+                    106 + i * 24,
+                    (0, 255, 0) if active else (200, 200, 200),
+                )
+            if legs_note == "low":
+                put("legs hidden: limited jump evidence", 154, (0, 80, 255), scale=0.45)
+            fired = step_fired if now - step_fired_t < 0.6 else "---"
+            phase = recognizer.lateral.phase if recognizer else "UNCALIBRATED"
+            if phase.startswith("MOVING"):
+                step_color = (0, 255, 0)
+            elif phase.startswith("RECOVER"):
+                step_color = (0, 200, 255)
+            else:
+                step_color = (200, 200, 200)
+            put(f"step   {phase}", 266, step_color)
+            if recognizer:
+                put(f"jump   {recognizer.jump_phase}", 288)
+                put(recognizer.reason, 310, scale=0.43)
+                put(recognizer.lateral.reason, 330, scale=0.43)
+            put(
+                f"fired  {fired}",
+                350,
+                (0, 255, 255) if fired != "---" else (200, 200, 200),
+            )
+            if now - big_t < 0.6:
+                cv2.putText(
+                    panel,
+                    big,
+                    (12, 385),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 255, 255),
+                    2,
+                )
+            for i, line in enumerate(log):
+                put(line, 408 + i * 20, scale=0.45)
+
+            cv2.imshow("body-controller test", np.hstack([frame, panel]))
+            k = cv2.waitKey(1) & 0xFF
+            if k == ord("q"):
+                break
+            if k == ord("c"):
+                calib_end, samples, leg_samples, base = now + 3.0, [], [], None
+                recognizer = None
                 if on_gesture_frame is not None:
-                    on_gesture_frame(output)
+                    on_gesture_frame(gesture_frame([], None, False))
+                step_fired, step_fired_t = "", 0.0
 
-                for e in events:
-                    log.appendleft(f"{time.strftime('%H:%M:%S')}  {e:7} -> {KEY[e]}")
-                    big, big_t = KEY[e], now
-        else:
-            prev = None
-            hip_hist.clear()
-            lat_s, lat_t = None, None
-
-        panel = np.zeros((h, 380, 3), np.uint8)
-
-        def put(text, y, color=(230, 230, 230), scale=0.55, thick=1):
-            cv2.putText(panel, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick)
-
-        put(f"FPS {fps:4.0f}   pose {infer_ms:4.1f} ms", 28)
-        put(status, 54, (0, 200, 255))
-        rows = [("lean", "sw", f"{LEAN[0]:.2f}", step_s), ("lean_old", "sw", None, False),
-                ("hip_x", "sw", None, False),
-                ("duck", "leg", f"{DUCK[0]:.2f}", duck_s),
-                ("duck_old", "torso", None, False),
-                ("hop_v", "/s", HOP_V, now - last_hop < 0.3),
-                ("step_v", "sw/s", f"{STEP_V[0]:.1f}", lat_s),
-                ("step_old", "sw/s", None, False)]
-        for i, (name, unit, thr, active) in enumerate(rows):
-            if name not in vals:
-                continue
-            note = "old" if thr is None else f"fires {thr}"
-            put(f"{name:6}{vals[name]:+7.2f} {unit:5} ({note})", 90 + i * 26,
-                (0, 255, 0) if active else (200, 200, 200))
-        if legs_note == "low":
-            put("duck   legs low", 168, (0, 80, 255))
-        fired = step_fired if now - step_fired_t < 0.6 else "---"
-        phase = step_label(lat_s)
-        if phase.startswith("MOVING"):
-            step_color = (0, 255, 0)
-        elif phase.startswith("RECOVER"):
-            step_color = (0, 200, 255)
-        else:
-            step_color = (200, 200, 200)
-        put(f"step   {phase}", 298, step_color)
-        put(f"fired  {fired}", 324, (0, 255, 255) if fired != "---" else (200, 200, 200))
-        if now - big_t < 0.6:
-            cv2.putText(panel, big, (12, 358), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
-        for i, line in enumerate(log):
-            put(line, 392 + i * 20, scale=0.45)
-
-        cv2.imshow("body-controller test", np.hstack([frame, panel]))
-        k = cv2.waitKey(1) & 0xFF
-        if k == ord("q"):
-            break
-        if k == ord("c"):
-            calib_end, samples, leg_samples, base, prev = now + 3.0, [], [], None, None
-            step_s, duck_s = None, False
-            hip_hist.clear()
-            lat_s, lat_t = None, None
-            step_fired, step_fired_t = "", 0.0
-
-    cap.release()
-    cv2.destroyAllWindows()
+    finally:
+        cap.release()
+        landmarker.close()
+        cv2.destroyAllWindows()
+        if on_gesture_frame is not None:
+            on_gesture_frame(gesture_frame([], None, False))
 
 
 if __name__ == "__main__":

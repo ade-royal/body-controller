@@ -17,7 +17,7 @@ from the repository root:
 ```
 
 Press **C** in the camera window and hold a neutral stance for three seconds.
-Lean or step left/right, jump, or crouch to swipe. **Q** quits. Use `--dry-run`
+Step left/right, jump, or crouch to swipe. Lean inputs are disabled. **Q** quits. Use `--dry-run`
 to see outputs without touching the device, and `--serial` for a device other
 than BlueStacks' default `127.0.0.1:5555`. To test swipes without the camera:
 `.\.venv\Scripts\python.exe android_swipe.py LEFT RIGHT UP DOWN`.
@@ -38,7 +38,7 @@ To send detected movements to the connected iPad instead, run from the repositor
 
 Keep the DeviceKit helper and USB port forward running, open the game, then press
 **C** in the camera window and hold a neutral stance for three seconds.
-Lean or step left/right, jump, or crouch to send the matching swipe. **Q** quits.
+Step left/right, jump, or crouch to send the matching swipe. Lean inputs are disabled. **Q** quits.
 Try `--dry-run` first to see the movement outputs without sending touches.
 Install camera dependencies using `laptop (royal)/requirements.txt`.
 
@@ -49,3 +49,20 @@ WebDriverAgent. Ten alternating swipes per DeviceKit method measured median
 acknowledgment of 303 ms for the custom path versus 344 ms for the original.
 These are not movement-to-screen timings, and the delay is still significant.
 See [IOS_SETUP.md](IOS_SETUP.md) for iPad or iPhone helper setup and launch instructions.
+
+## Movement recognition
+
+Calibrate while standing still, facing the camera. Keep your full body and feet
+visible for the strongest jump/crouch evidence. Recalibrate after a substantial
+change in camera placement or your distance from it.
+
+Directions require sustained travel of both hips and shoulders. A deliberate
+return trip counts as another direction; holding a position does not repeat it.
+Jump detection checks coordinated upward movement and visible foot rise, then
+waits for landing before another jump. Rising from a crouch alone is insufficient.
+When feet are cropped, jumps require a larger body rise and crouch recognition is
+unavailable. Directions remain available during a jump.
+
+The camera panel shows travel, speed, takeoff evidence and action phases. See
+[the recognition review](docs/gesture-recognition-results.md) for replay results,
+the remaining direction disagreement and a short live-test sequence.
